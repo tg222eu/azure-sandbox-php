@@ -1,0 +1,8 @@
+# Bicep build output
+*.json
+!bicepconfig.json
+
+# Local/secret parameter files
+*.local.bicepparam
+
+.vscode/
