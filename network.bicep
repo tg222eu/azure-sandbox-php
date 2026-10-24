@@ -1,14 +1,30 @@
+// network.bicep
+// Virtual network + locked-down NSG for the honeypot, now with a subnet for
+// Azure Bastion so you log in over the Azure backbone instead of exposing SSH.
+//
+// Subnet layout inside 10.50.0.0/24:
+//   10.50.0.0/27   honeypot-snet      (the VM)            .0  - .31
+//   10.50.0.64/26  AzureBastionSubnet (Bastion, fixed name) .64 - .127
+
+// ---- Parameters ----
+
+@description('Azure region, e.g. swedencentral.')
 param location string
-param adminSourceIp string
+
+@description('Prefix used to name resources.')
 param namePrefix string = 'honeypot'
 
-var vnetName   = '${namePrefix}-vnet'
-var subnetName = '${namePrefix}-snet'
-var nsgName    = '${namePrefix}-nsg'
+// ---- Variables ----
+
+var vnetName       = '${namePrefix}-vnet'
+var subnetName     = '${namePrefix}-snet'
+var nsgName        = '${namePrefix}-nsg'
+
 var vnetAddressSpace = '10.50.0.0/24'
 var subnetPrefix     = '10.50.0.0/27'
+var bastionPrefix    = '10.50.0.64/26' // Bastion requires /26 or larger
 
-param lockdownEgress bool = false // Toggle 
+// ---- Network Security Group (honeypot subnet) ----
 
 resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   name: nsgName
@@ -17,8 +33,8 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
     securityRules: [
       // --- Inbound ---
 
-      // Allow HTTP from anywhere. This is the honeypot's "front door":
-      // the whole point is to let the internet reach the web service.
+      // The honeypot's front door: HTTP from anywhere. This is the ONLY port
+      // we expose to the internet now.
       {
         name: 'Allow-HTTP-Honeypot'
         properties: {
@@ -33,16 +49,17 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
         }
       }
 
-      // Allow SSH (port 22) ONLY from your IP. This keeps management access
-      // private while the web port stays open to the world.
+      // SSH is NO LONGER open to the internet. Bastion connects to the VM from
+      // inside the VNet, so we only allow 22 from the VirtualNetwork. Port 22
+      // is unreachable from the public internet entirely.
       {
-        name: 'Allow-SSH-MyIP'
+        name: 'Allow-SSH-FromBastion'
         properties: {
           priority: 110
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
-          sourceAddressPrefix: adminSourceIp
+          sourceAddressPrefix: 'VirtualNetwork'
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '22'
@@ -50,13 +67,8 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
       }
 
       // --- Outbound ---
-      // Containment. By default Azure lets a VM talk to the whole internet.
-      // These rules replace that with: reach your own storage privately, and
-      // nothing else. The attacker's second-stage download has nowhere to go.
 
-      // Allow traffic to other machines inside this VNet (e.g. the private
-      // endpoint for storage, added in the storage module). This is what lets
-      // the VM ship its logs out without touching the public internet.
+      // Allow traffic inside the VNet (storage private endpoint, Bastion).
       {
         name: 'Allow-VNet-Out'
         properties: {
@@ -71,9 +83,25 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
         }
       }
 
-      // Deny all other outbound traffic. Sits at priority 300, ABOVE Azure's
-      // default AllowInternetOutBound (65001), so it wins: no egress to the
-      // internet. This is the single most important containment rule.
+      // Allow HTTPS to Azure Monitor so the VM can send logs to Log Analytics.
+      // Scoped to the AzureMonitor service tag only - not the whole internet.
+      {
+        name: 'Allow-AzureMonitor-Out'
+        properties: {
+          priority: 210
+          direction: 'Outbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: '*'
+          sourcePortRange: '*'
+          destinationAddressPrefix: 'AzureMonitor'
+          destinationPortRange: '443'
+        }
+      }
+
+      // The containment rule: deny every other outbound path. Sits above
+      // Azure's default AllowInternetOutBound (65001), so a compromised box
+      // cannot reach the internet to attack others or pull second-stage code.
       {
         name: 'Deny-All-Out'
         properties: {
@@ -91,9 +119,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   }
 }
 
-// =============================================================================
-// Virtual network + subnet
-// =============================================================================
+// ---- Virtual network + subnets ----
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   name: vnetName
@@ -110,18 +136,30 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
           networkSecurityGroup: {
             id: nsg.id
           }
-          // Needed so a private endpoint can be created in this subnet later.
           privateEndpointNetworkPolicies: 'Disabled'
+        }
+      }
+      {
+        // Name MUST be exactly 'AzureBastionSubnet' or Bastion deployment fails.
+        name: 'AzureBastionSubnet'
+        properties: {
+          addressPrefix: bastionPrefix
         }
       }
     ]
   }
 }
 
-// =============================================================================
-// Outputs
-// =============================================================================
+// ---- Outputs ----
 
+@description('Resource ID of the honeypot subnet (VM + private endpoint).')
 output subnetId string = vnet.properties.subnets[0].id
+
+@description('Resource ID of the AzureBastionSubnet.')
+output bastionSubnetId string = vnet.properties.subnets[1].id
+
+@description('Resource ID of the VNet, for the Private DNS zone link.')
 output vnetId string = vnet.id
+
+@description('Name of the VNet.')
 output vnetName string = vnet.name
