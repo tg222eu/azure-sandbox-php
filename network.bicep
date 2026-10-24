@@ -8,6 +8,8 @@ var nsgName    = '${namePrefix}-nsg'
 var vnetAddressSpace = '10.50.0.0/24'
 var subnetPrefix     = '10.50.0.0/27'
 
+param lockdownEgress bool = false // Toggle 
+
 resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   name: nsgName
   location: location
