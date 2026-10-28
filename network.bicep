@@ -14,6 +14,13 @@ param location string
 @description('Prefix used to name resources.')
 param namePrefix string = 'honeypot'
 
+@description('''When true (default), the box is SEALED: no outbound internet.
+Deploy FIRST with sealed=false so cloud-init can install Docker, pull the image
+and install the agent; once /var/log/honeypot-setup.log shows it finished,
+redeploy with sealed=true to remove the temporary egress and lock the box down
+BEFORE it is worth attacking.''')
+param sealed bool = true
+
 // ---- Variables ----
 
 var vnetName       = '${namePrefix}-vnet'
@@ -24,13 +31,30 @@ var vnetAddressSpace = '10.50.0.0/24'
 var subnetPrefix     = '10.50.0.0/27'
 var bastionPrefix    = '10.50.0.64/26' // Bastion requires /26 or larger
 
+// A temporary outbound rule that only exists while sealed=false, so first-boot
+// setup can reach the package registries and Docker Hub. Priority 250 sits
+// below the VNet/Monitor allows and ABOVE Deny-All-Out (300).
+var setupEgressRule = [
+  {
+    name: 'Allow-Setup-Temp'
+    properties: {
+      priority: 250
+      direction: 'Outbound'
+      access: 'Allow'
+      protocol: 'Tcp'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: 'Internet'
+      destinationPortRanges: [ '80', '443' ]
+    }
+  }
+]
+
 // ---- Network Security Group (honeypot subnet) ----
 
-resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
-  name: nsgName
-  location: location
-  properties: {
-    securityRules: [
+// The permanent rules. The temporary setup-egress rule is appended only while
+// sealed=false (see securityRules below).
+var coreRules = [
       // --- Inbound ---
 
       // The honeypot's front door: HTTP from anywhere. This is the ONLY port
@@ -115,7 +139,14 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
           destinationPortRange: '*'
         }
       }
-    ]
+]
+
+resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
+  name: nsgName
+  location: location
+  properties: {
+    // Append the temporary setup-egress rule only while sealed=false.
+    securityRules: sealed ? coreRules : concat(coreRules, setupEgressRule)
   }
 }
 
