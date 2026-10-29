@@ -31,9 +31,6 @@ param adminUsername = 'azureuser'
 // Prefix for every resource name.
 param namePrefix = 'honeypot'
 
-// Free direct SSH is used by default; leave false to avoid paid Bastion.
-param deployBastion = false
-
 // Deploy FALSE first (first boot needs internet to install everything),
 // then redeploy TRUE to seal off egress before exposing the honeypot.
 param sealed = false

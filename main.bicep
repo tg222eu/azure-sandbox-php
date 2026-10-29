@@ -48,7 +48,7 @@ var cloudInitFilled = replace(
 )
 var cloudInitBase64 = base64(cloudInitFilled)
 
-// ---- 1. Network (VNet, subnet, NSG, Bastion subnet) ----
+// ---- 1. Network (VNet, subnet, locked-down NSG) ----
 
 module network 'network.bicep' = {
   name: 'network'
@@ -87,7 +87,8 @@ module vm 'vm.bicep' = {
   }
 }
 
-// ---- 5. Monitoring (Log Analytics + DCR + agent on the VM) ----
+// ---- 4. Monitoring (Log Analytics + DCR + agent on the VM) ----
+// Login is free direct SSH from your IP (adminSourceIp). No Bastion.
 
 module monitoring 'monitoring.bicep' = {
   name: 'monitoring'
@@ -103,7 +104,7 @@ module monitoring 'monitoring.bicep' = {
 @description('Public IP of the honeypot (the address attackers hit).')
 output honeypotPublicIp string = vm.outputs.publicIpAddress
 
-@description('Name of the VM (connect to it via Bastion in the portal).')
+@description('Name of the VM (SSH to its public IP from your allowed IP).')
 output vmName string = vm.outputs.vmName
 
 @description('Log Analytics workspace for your KQL queries.')

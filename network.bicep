@@ -1,10 +1,9 @@
 // network.bicep
-// Virtual network + locked-down NSG for the honeypot, now with a subnet for
-// Azure Bastion so you log in over the Azure backbone instead of exposing SSH.
+// Virtual network + locked-down NSG for the honeypot. Login is free direct SSH
+// from your IP only (adminSourceIp); port 80 is the only internet-facing port.
 //
 // Subnet layout inside 10.50.0.0/24:
-//   10.50.0.0/27   honeypot-snet      (the VM)            .0  - .31
-//   10.50.0.64/26  AzureBastionSubnet (Bastion, fixed name) .64 - .127
+//   10.50.0.0/27   honeypot-snet   (the VM)   .0 - .31
 
 // ---- Parameters ----
 
@@ -34,7 +33,6 @@ var nsgName        = '${namePrefix}-nsg'
 
 var vnetAddressSpace = '10.50.0.0/24'
 var subnetPrefix     = '10.50.0.0/27'
-var bastionPrefix    = '10.50.0.64/26' // Bastion requires /26 or larger
 
 // A temporary outbound rule that only exists while sealed=false, so first-boot
 // setup can reach the package registries and Docker Hub. Priority 250 sits
@@ -78,17 +76,16 @@ var coreRules = [
         }
       }
 
-      // SSH is NO LONGER open to the internet. Bastion connects to the VM from
-      // inside the VNet, so we only allow 22 from the VirtualNetwork. Port 22
-      // is unreachable from the public internet entirely.
+      // SSH allowed ONLY from your IP (direct SSH, free - no Bastion needed).
+      // The whole internet still cannot reach port 22; just your address can.
       {
-        name: 'Allow-SSH-FromBastion'
+        name: 'Allow-SSH-MyIP'
         properties: {
           priority: 110
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
-          sourceAddressPrefix: 'VirtualNetwork'
+          sourceAddressPrefix: adminSourceIp
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '22'
@@ -97,7 +94,7 @@ var coreRules = [
 
       // --- Outbound ---
 
-      // Allow traffic inside the VNet (storage private endpoint, Bastion).
+      // Allow traffic inside the VNet (reaches the storage private endpoint).
       {
         name: 'Allow-VNet-Out'
         properties: {
@@ -175,13 +172,6 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
           privateEndpointNetworkPolicies: 'Disabled'
         }
       }
-      {
-        // Name MUST be exactly 'AzureBastionSubnet' or Bastion deployment fails.
-        name: 'AzureBastionSubnet'
-        properties: {
-          addressPrefix: bastionPrefix
-        }
-      }
     ]
   }
 }
@@ -190,9 +180,6 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
 
 @description('Resource ID of the honeypot subnet (VM + private endpoint).')
 output subnetId string = vnet.properties.subnets[0].id
-
-@description('Resource ID of the AzureBastionSubnet.')
-output bastionSubnetId string = vnet.properties.subnets[1].id
 
 @description('Resource ID of the VNet, for the Private DNS zone link.')
 output vnetId string = vnet.id
