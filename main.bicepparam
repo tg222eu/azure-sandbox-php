@@ -1,28 +1,39 @@
-// main.bicepparam
-// COMMITTED template - placeholder values only, safe for a public repo.
-// For a real deploy, copy this to main.local.bicepparam (gitignored) and put
-// your actual SSH public key in it.
+// main.bicepparam  —  PARAMETER TEMPLATE (committed, placeholders only)
+// ---------------------------------------------------------------------------
+// This file is a template. It contains NO real values and is safe to commit.
+//
+// To deploy:
+//   1. Copy this file to  main.local.bicepparam   (gitignored, never pushed)
+//   2. In that copy, replace the two <REPLACE_...> values below
+//   3. Deploy with:
+//        az deployment group create -g <your-rg> -f main.bicep -p main.local.bicepparam
+// ---------------------------------------------------------------------------
 using './main.bicep'
 
+// Region for all resources.
 param location = 'swedencentral'
 
-// Your SSH PUBLIC key (the contents of sandbox_key.pub). Placeholder here -
-// replace in your local copy. This is the public half, safe to share, but we
-// keep real infra values out of the committed file on principle.
-param adminPublicKey = 'ssh-ed25519 AAAA_REPLACE_WITH_YOUR_PUBLIC_KEY sandbox-key'
+// --- REPLACE in your local copy -------------------------------------------
 
-// Your public IP /32 allowed to SSH in. Placeholder here (documentation-only
-// range); put your REAL IP in main.local.bicepparam, never in this committed
-// file. Find it by searching "what is my IP" in a browser.
-param adminSourceIp = '203.0.113.4/32'
+// Your SSH PUBLIC key — the full one line from sandbox_key.pub.
+// (Public half only. Safe to share; your PRIVATE key never goes in any file.)
+param adminPublicKey = '<REPLACE_WITH_CONTENTS_OF_sandbox_key.pub>'
 
+// Your public IP, with /32 on the end, so only you can SSH in.
+// Find it: (Invoke-RestMethod ifconfig.me/ip)   or search "what is my IP".
+param adminSourceIp = '<REPLACE_WITH_YOUR_PUBLIC_IP>/32'
+
+// --- Usually leave these as-is --------------------------------------------
+
+// Login account created on the VM.
 param adminUsername = 'azureuser'
 
+// Prefix for every resource name.
 param namePrefix = 'honeypot'
 
-// Direct SSH is free and on by default; Bastion stays off unless you want it.
-// (If you ever set this true, bastionSku defaults to 'Basic' in main.bicep.)
+// Free direct SSH is used by default; leave false to avoid paid Bastion.
 param deployBastion = false
 
-// Deploy FALSE first (setup needs internet), then redeploy TRUE to lock down.
+// Deploy FALSE first (first boot needs internet to install everything),
+// then redeploy TRUE to seal off egress before exposing the honeypot.
 param sealed = false

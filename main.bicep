@@ -33,13 +33,6 @@ param adminUsername string = 'azureuser'
 @description('Prefix used to name all resources.')
 param namePrefix string = 'honeypot'
 
-@description('''Deploy Azure Bastion? Default false = free direct SSH from your
-IP. Set true only if you want the (paid) Bastion jump host instead.''')
-param deployBastion bool = false
-
-@description('Bastion SKU (only used if deployBastion=true): Basic, Standard, or Developer.')
-param bastionSku string = 'Basic'
-
 @description('''SEALED state. Deploy with false first (setup needs internet),
 then redeploy with true to lock down egress before the box is exposed.''')
 param sealed bool = true
@@ -91,19 +84,6 @@ module vm 'vm.bicep' = {
     adminPublicKey: adminPublicKey
     adminUsername: adminUsername
     customDataBase64: cloudInitBase64
-  }
-}
-
-// ---- 4. Bastion (OPTIONAL, off by default - direct SSH is used instead) ----
-// Only deploys when deployBastion=true. Default is free direct SSH from your IP.
-
-module bastion 'bastion.bicep' = if (deployBastion) {
-  name: 'bastion'
-  params: {
-    location: location
-    namePrefix: namePrefix
-    bastionSubnetId: network.outputs.bastionSubnetId
-    bastionSku: bastionSku
   }
 }
 
