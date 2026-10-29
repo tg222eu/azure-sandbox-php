@@ -14,6 +14,11 @@ param location string
 @description('Prefix used to name resources.')
 param namePrefix string = 'honeypot'
 
+@description('''Your public IP in CIDR form (e.g. 203.0.113.4/32) allowed to
+SSH to the VM directly. Keep this to YOUR address only. Put the real value in
+main.local.bicepparam, not the committed param file.''')
+param adminSourceIp string
+
 @description('''When true (default), the box is SEALED: no outbound internet.
 Deploy FIRST with sealed=false so cloud-init can install Docker, pull the image
 and install the agent; once /var/log/honeypot-setup.log shows it finished,

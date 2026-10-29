@@ -21,8 +21,11 @@ targetScope = 'resourceGroup'
 @description('Azure region for everything, e.g. swedencentral.')
 param location string = resourceGroup().location
 
-@description('Your SSH PUBLIC key (contents of ~/.ssh/honeypot_key.pub).')
+@description('Your SSH PUBLIC key (contents of ~/.ssh/sandbox_key.pub).')
 param adminPublicKey string
+
+@description('Your public IP (CIDR, e.g. 203.0.113.4/32) allowed to SSH in.')
+param adminSourceIp string
 
 @description('Admin username on the VM.')
 param adminUsername string = 'azureuser'
@@ -30,7 +33,11 @@ param adminUsername string = 'azureuser'
 @description('Prefix used to name all resources.')
 param namePrefix string = 'honeypot'
 
-@description('Bastion SKU: Basic (default), Standard, or Developer where available.')
+@description('''Deploy Azure Bastion? Default false = free direct SSH from your
+IP. Set true only if you want the (paid) Bastion jump host instead.''')
+param deployBastion bool = false
+
+@description('Bastion SKU (only used if deployBastion=true): Basic, Standard, or Developer.')
 param bastionSku string = 'Basic'
 
 @description('''SEALED state. Deploy with false first (setup needs internet),
@@ -55,6 +62,7 @@ module network 'network.bicep' = {
   params: {
     location: location
     namePrefix: namePrefix
+    adminSourceIp: adminSourceIp
     sealed: sealed
   }
 }
@@ -86,9 +94,10 @@ module vm 'vm.bicep' = {
   }
 }
 
-// ---- 4. Bastion (jump host for SSH; no public SSH on the VM) ----
+// ---- 4. Bastion (OPTIONAL, off by default - direct SSH is used instead) ----
+// Only deploys when deployBastion=true. Default is free direct SSH from your IP.
 
-module bastion 'bastion.bicep' = {
+module bastion 'bastion.bicep' = if (deployBastion) {
   name: 'bastion'
   params: {
     location: location
