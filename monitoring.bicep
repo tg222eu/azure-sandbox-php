@@ -103,7 +103,12 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
         {
           name: 'honeypotTextLogs'
           streams: [ 'Custom-HoneypotTextLogs' ]
-          filePatterns: [ '/var/log/honeypot/*.log' ]
+          // Top level: sinkhole/DNS/iptables logs. apache/ subfolder: the
+          // honeypot's own inbound request log (attacker IPs + URLs).
+          filePatterns: [
+            '/var/log/honeypot/*.log'
+            '/var/log/honeypot/apache/*.log'
+          ]
           format: 'text'
           settings: {
             text: {
