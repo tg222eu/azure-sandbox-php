@@ -28,7 +28,7 @@ param customDataBase64 string = ''
 param namePrefix string = 'honeypot'
 
 @description('VM size. B2s is small and cheap, plenty for a 24h sensor.')
-param vmSize string = 'Standard_B2s'
+param vmSize string = 'Standard_B2s_v2'
 
 var vmName     = '${namePrefix}-vm'
 var pipName    = '${namePrefix}-pip'
