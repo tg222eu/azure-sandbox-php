@@ -18,26 +18,26 @@
 # records what attackers do. Validate detections against published IOCs.
 #
 # Templated by main.bicep, then passed as base64 customData.
- 
+
 set -euxo pipefail
 exec > /var/log/honeypot-setup.log 2>&1
- 
+
 # ---- Inputs (filled in by main.bicep before base64 encoding) ----
 STORAGE_ACCOUNT="__STORAGE_ACCOUNT__"
 EVIDENCE_CONTAINER="__EVIDENCE_CONTAINER__"
 # Pre-patch tag. PHP2Shell was fixed in 8.4.27; 8.4.26 is the version before.
 # Confirm this tag exists on Docker Hub before deploying.
 PHP_IMAGE="php:8.4.26-apache"
- 
+
 LOGDIR="/var/log/honeypot"
 EVID="/opt/honeypot/evidence"
 mkdir -p "$LOGDIR" "$EVID"/{dropped,host,baseline}
- 
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y docker.io auditd dnsmasq nginx jq curl iptables-persistent
 systemctl enable --now docker auditd
- 
+
 # =============================================================================
 # 1. Host monitoring: auditd records every command and writes to temp dirs.
 #    This is how you see post-exploitation activity on the host side.
@@ -50,7 +50,7 @@ cat >> /etc/audit/rules.d/honeypot.rules <<'EOF'
 -w /dev/shm -p wa -k drop
 EOF
 augenrules --load || true
- 
+
 # =============================================================================
 # 2. The sinkhole: make the container believe it has internet, log the lies.
 #    - dnsmasq answers EVERY DNS lookup with the Docker gateway (172.17.0.1)
@@ -69,7 +69,7 @@ interface=docker0
 bind-interfaces
 EOF
 systemctl restart dnsmasq
- 
+
 # nginx sinkhole bound to the Docker gateway only (does NOT touch eth0:80,
 # which belongs to the honeypot container).
 cat > /etc/nginx/sites-available/sinkhole <<'EOF'
@@ -85,7 +85,7 @@ EOF
 ln -sf /etc/nginx/sites-available/sinkhole /etc/nginx/sites-enabled/sinkhole
 rm -f /etc/nginx/sites-enabled/default
 systemctl restart nginx
- 
+
 # =============================================================================
 # 3. iptables: drop + log any container egress that is not aimed at the
 #    sinkhole gateway. Defense-in-depth behind the NSG's Deny-All-Out.
@@ -99,11 +99,11 @@ iptables -t nat -A PREROUTING -i docker0 -p tcp --dport 80  -j DNAT --to-destina
 iptables -I DOCKER-USER -i docker0 ! -d 172.17.0.0/16 -j DROP
 iptables -I DOCKER-USER -i docker0 ! -d 172.17.0.0/16 -j LOG --log-prefix "HP-DROP-OUT: " --log-level 4
 netfilter-persistent save
- 
+
 # Send kernel iptables logs to their own file for the DCR to pick up.
 echo ':msg, contains, "HP-DROP-OUT:" /var/log/honeypot/iptables-drop.log' > /etc/rsyslog.d/10-honeypot.conf
 systemctl restart rsyslog
- 
+
 # =============================================================================
 # 4. The honeypot container: real Apache + PHP, one version behind the patch.
 #    A plain landing page (NOT exploit code) that starts a session, so the box
@@ -117,7 +117,7 @@ session_start();
 <!doctype html><html><head><title>Account Portal</title></head>
 <body><h1>Account Portal</h1><p>Please sign in to continue.</p></body></html>
 EOF
- 
+
 docker pull "$PHP_IMAGE"
 # Publish on the VM's own interface IP, NOT 0.0.0.0. The nginx sinkhole already
 # holds port 80 on the Docker gateway (172.17.0.1), so a wildcard 0.0.0.0:80
@@ -127,6 +127,12 @@ HOST_IP=$(ip -4 route get 1.1.1.1 | awk '{print $7; exit}')
 # --dns points the container at our sinkhole resolver.
 # --cap-drop ALL and limits reduce blast radius; the filesystem stays writable
 # on purpose so we can observe what attackers drop.
+# Apache inside the container logs attacker requests to /var/log/apache2. Mount
+# that onto the host (dedicated subfolder) so the DCR ships those request logs -
+# this is the core attacker IP/URL dataset. Dedicated subfolder means the
+# attacker-controlled container can tamper only with its own log, not the host
+# sinkhole/DNS logs sitting in /var/log/honeypot.
+mkdir -p /var/log/honeypot/apache
 docker run -d --name hp-web --restart always \
   --dns 172.17.0.1 \
   --cap-drop ALL \
@@ -134,8 +140,9 @@ docker run -d --name hp-web --restart always \
   --memory 512m \
   -p ${HOST_IP}:80:80 \
   -v /opt/honeypot/www:/var/www/html:rw \
+  -v /var/log/honeypot/apache:/var/log/apache2 \
   "$PHP_IMAGE"
- 
+
 # =============================================================================
 # 5. Baseline the container filesystem (the "before" snapshot).
 # =============================================================================
@@ -143,7 +150,7 @@ sleep 5
 docker exec hp-web bash -c 'find / -xdev -type f -exec sha256sum {} + 2>/dev/null' \
   > "${EVID}/baseline/baseline.sha256" || true
 docker inspect hp-web > "${EVID}/baseline/container-inspect.json" || true
- 
+
 # =============================================================================
 # 6. Evidence collector: every 2 minutes, diff the container against its image
 #    and copy out anything added or changed BEFORE the attacker deletes it.
@@ -171,7 +178,7 @@ if [ -d "$OUT" ]; then
 fi
 EOF
 chmod +x /opt/honeypot/collect.sh
- 
+
 # =============================================================================
 # 7. Ship binary evidence to private Blob storage via managed identity.
 #    Text logs stay in /var/log/honeypot for the DCR -> Log Analytics.
@@ -188,10 +195,10 @@ az storage blob upload-batch \
   --auth-mode login --overwrite >/dev/null 2>&1 || true
 EOF
 chmod +x /opt/honeypot/ship.sh
- 
+
 cat > /etc/cron.d/honeypot <<'EOF'
 */2 * * * * root /opt/honeypot/collect.sh
 */5 * * * * root /opt/honeypot/ship.sh
 EOF
- 
+
 echo "High-interaction honeypot ready: Apache/PHP ${PHP_IMAGE}, sinkholed, logging."
