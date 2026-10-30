@@ -11,7 +11,7 @@
 using './main.bicep'
 
 // Region for all resources.
-param location = 'swedencentral'
+param location = 'germanywestcentral'
 
 // --- REPLACE in your local copy -------------------------------------------
 
@@ -33,4 +33,4 @@ param namePrefix = 'honeypot'
 
 // Deploy FALSE first (first boot needs internet to install everything),
 // then redeploy TRUE to seal off egress before exposing the honeypot.
-param sealed = true
+param sealed = false
