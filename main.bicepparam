@@ -33,4 +33,4 @@ param namePrefix = 'honeypot'
 
 // Deploy FALSE first (first boot needs internet to install everything),
 // then redeploy TRUE to seal off egress before exposing the honeypot.
-param sealed = false
+param sealed = true
