@@ -93,8 +93,11 @@ systemctl restart nginx
 # Redirect container web traffic (even to raw IPs) into the sinkhole.
 iptables -t nat -A PREROUTING -i docker0 -p tcp --dport 80  -j DNAT --to-destination 172.17.0.1:80
 # Log then drop everything else leaving the container subnet.
-iptables -I DOCKER-USER -i docker0 ! -d 172.17.0.0/16 -j LOG --log-prefix "HP-DROP-OUT: " --log-level 4
+# NOTE: -I inserts at the TOP, so insert DROP first, then LOG, so the final
+# order is LOG then DROP (a packet is logged BEFORE it is dropped). Inserting
+# LOG first then DROP would put DROP on top and the LOG would never fire.
 iptables -I DOCKER-USER -i docker0 ! -d 172.17.0.0/16 -j DROP
+iptables -I DOCKER-USER -i docker0 ! -d 172.17.0.0/16 -j LOG --log-prefix "HP-DROP-OUT: " --log-level 4
 netfilter-persistent save
  
 # Send kernel iptables logs to their own file for the DCR to pick up.
@@ -116,6 +119,11 @@ session_start();
 EOF
  
 docker pull "$PHP_IMAGE"
+# Publish on the VM's own interface IP, NOT 0.0.0.0. The nginx sinkhole already
+# holds port 80 on the Docker gateway (172.17.0.1), so a wildcard 0.0.0.0:80
+# publish would collide ("address already in use"). Binding the eth0 IP keeps
+# the honeypot reachable from the internet while leaving the sinkhole alone.
+HOST_IP=$(ip -4 route get 1.1.1.1 | awk '{print $7; exit}')
 # --dns points the container at our sinkhole resolver.
 # --cap-drop ALL and limits reduce blast radius; the filesystem stays writable
 # on purpose so we can observe what attackers drop.
@@ -124,7 +132,7 @@ docker run -d --name hp-web --restart always \
   --cap-drop ALL \
   --pids-limit 300 \
   --memory 512m \
-  -p 80:80 \
+  -p ${HOST_IP}:80:80 \
   -v /opt/honeypot/www:/var/www/html:rw \
   "$PHP_IMAGE"
  
