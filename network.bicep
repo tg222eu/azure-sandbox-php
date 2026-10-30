@@ -53,28 +53,32 @@ var setupEgressRule = [
   }
 ]
 
+// The honeypot's front door (port 80 from anywhere). Added ONLY while
+// sealed=true, so the vulnerable box is never reachable during the setup
+// window when egress is still open. This guarantees the box is never both
+// exploitable AND able to reach the internet at the same time.
+var httpRule = [
+  {
+    name: 'Allow-HTTP-Honeypot'
+    properties: {
+      priority: 100
+      direction: 'Inbound'
+      access: 'Allow'
+      protocol: 'Tcp'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: '*'
+      destinationPortRange: '80'
+    }
+  }
+]
+
 // ---- Network Security Group (honeypot subnet) ----
 
-// The permanent rules. The temporary setup-egress rule is appended only while
-// sealed=false (see securityRules below).
+// Permanent rules. Port 80 (httpRule) is added only when sealed; the temporary
+// setup-egress rule is added only when NOT sealed (see securityRules below).
 var coreRules = [
       // --- Inbound ---
-
-      // The honeypot's front door: HTTP from anywhere. This is the ONLY port
-      // we expose to the internet now.
-      {
-        name: 'Allow-HTTP-Honeypot'
-        properties: {
-          priority: 100
-          direction: 'Inbound'
-          access: 'Allow'
-          protocol: 'Tcp'
-          sourceAddressPrefix: '*'
-          sourcePortRange: '*'
-          destinationAddressPrefix: '*'
-          destinationPortRange: '80'
-        }
-      }
 
       // SSH allowed ONLY from your IP (direct SSH, free - no Bastion needed).
       // The whole internet still cannot reach port 22; just your address can.
@@ -147,8 +151,9 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   name: nsgName
   location: location
   properties: {
-    // Append the temporary setup-egress rule only while sealed=false.
-    securityRules: sealed ? coreRules : concat(coreRules, setupEgressRule)
+    // sealed=true  -> open port 80 to the world, no internet egress.
+    // sealed=false -> port 80 CLOSED, temporary egress open for first-boot setup.
+    securityRules: sealed ? concat(coreRules, httpRule) : concat(coreRules, setupEgressRule)
   }
 }
 
